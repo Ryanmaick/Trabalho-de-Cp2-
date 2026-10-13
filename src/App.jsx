@@ -1,0 +1,117 @@
+import { useEffect, useState } from 'react'
+import { Routes, Route } from 'react-router'
+import Header from './components/Header'
+import Footer from './components/Footer'
+import RolarParaTopo from './components/RolarParaTopo'
+import Loja from './pages/Loja'
+import PaginaProduto from './pages/PaginaProduto'
+import Carrinho from './pages/Carrinho'
+import Estoque from './pages/Estoque'
+import { buscarProdutos } from './services/produtos'
+import { buscarClientes } from './services/clientes'
+import { quantidadeNoCarrinho } from './utils/carrinho'
+
+export default function App() {
+  const [produtos, setProdutos] = useState([])
+  const [carregando, setCarregando] = useState(true)
+  const [erro, setErro] = useState(null)
+  const [carrinho, setCarrinho] = useState([])
+  const [clientes, setClientes] = useState([])
+  const [clienteAtualId, setClienteAtualId] = useState(null)
+  // Quem pediu aviso de produto esgotado: { produtoId, nome, email }.
+  // Mora aqui porque a página do produto grava e a área de estoque lê.
+  const [listaEspera, setListaEspera] = useState([])
+
+  useEffect(() => {
+    buscarProdutos()
+      .then((dados) => setProdutos(dados))
+      .catch(() => setErro('Não foi possível carregar os produtos.'))
+      .finally(() => setCarregando(false))
+
+    buscarClientes()
+      .then((dados) => {
+        setClientes(dados)
+        if (dados.length > 0) setClienteAtualId(dados[0].id)
+      })
+      .catch(() => setClientes([]))
+  }, [])
+
+  function adicionarAoCarrinho(produto) {
+    // Regras de venda: sem preço ou esgotado não entra, e nunca passa do estoque
+    const noCarrinho = quantidadeNoCarrinho(carrinho, produto.id)
+    if (produto.semPreco || produto.estoque === 0 || noCarrinho >= produto.estoque) return
+
+    setCarrinho((prev) => [...prev, produto])
+  }
+
+  function removerUmaUnidade(produtoId) {
+    // Remove só a primeira unidade encontrada do produto
+    setCarrinho((prev) => {
+      const posicao = prev.findIndex((produto) => produto.id === produtoId)
+      return posicao === -1 ? prev : prev.filter((_, indice) => indice !== posicao)
+    })
+  }
+
+  function avisarQuandoVoltar(entrada) {
+    setListaEspera((prev) => [...prev, entrada])
+  }
+
+  const clienteAtual = clientes.find((cliente) => cliente.id === clienteAtualId)
+
+  return (
+    <div className="app">
+      <RolarParaTopo />
+      <Header carrinho={carrinho} clienteAtual={clienteAtual} />
+
+      <main className="conteudo">
+        {carregando && <p className="aviso">Carregando produtos...</p>}
+        {erro && <p className="aviso aviso-erro">{erro}</p>}
+
+        {!carregando && !erro && (
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <Loja produtos={produtos} carrinho={carrinho} onAdicionar={adicionarAoCarrinho} />
+              }
+            />
+            <Route
+              path="/produto/:id"
+              element={
+                <PaginaProduto
+                  produtos={produtos}
+                  carrinho={carrinho}
+                  listaEspera={listaEspera}
+                  onAdicionar={adicionarAoCarrinho}
+                  onAvisar={avisarQuandoVoltar}
+                />
+              }
+            />
+            <Route
+              path="/carrinho"
+              element={
+                <Carrinho
+                  carrinho={carrinho}
+                  produtos={produtos}
+                  clienteAtual={clienteAtual}
+                  onAdicionar={adicionarAoCarrinho}
+                  onRemover={removerUmaUnidade}
+                />
+              }
+            />
+            <Route
+              path="/estoque"
+              element={<Estoque produtos={produtos} listaEspera={listaEspera} />}
+            />
+          </Routes>
+        )}
+      </main>
+
+      <Footer
+        clientes={clientes}
+        clienteAtualId={clienteAtualId}
+        onTrocarCliente={setClienteAtualId}
+      />
+    </div>
+  )
+}
